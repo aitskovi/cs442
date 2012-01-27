@@ -92,13 +92,15 @@
 (check-expect (alpha-equiv (make-abs 'x (make-abs 'x 'x)) (make-abs 'y (make-abs 'y 'y))) #t)
 (check-expect (alpha-equiv (make-app 'x (make-abs 'x 'x)) (make-app 'y (make-abs 'y 'y))) #f)
 (check-expect (alpha-equiv (make-app 'x (make-abs 'x 'x)) (make-app 'x (make-abs 'y 'y))) #t)
+(check-expect (alpha-equiv '(λ x (λ y z)) '(λ z (λ y z))) #f)
+(check-expect (alpha-equiv '(λ z (λ y z)) '(λ x (λ y z))) #f)
 (define (alpha-equiv e1 e2)
   (cond
     [(and (var? e1) (var? e2)) (eq? e1 e2)]
     [(and (abs? e1) (abs? e2)) 
      (if (eq? (var-of e1) (var-of e2))
          (alpha-equiv (body-of e1) (body-of e2))
-         (alpha-equiv (body-of e1) (subst (var-of e2) (var-of e1) (body-of e2))))]
+         (if (free? (var-of e1) (body-of e2)) #f (alpha-equiv (body-of e1) (subst (var-of e2) (var-of e1) (body-of e2)))))]
     [(and (app? e1) (app? e2)) (and (alpha-equiv (rator-of e1) (rator-of e2))
                                     (alpha-equiv (rand-of e1) (rand-of e2)))]
     [else #f]))
@@ -137,15 +139,23 @@
 ;; the provided expression.
 (check-expect (free? 'x 'x) #t)
 (check-expect (free? 'x 'y) #f)
-(check-expect (free? 'x (make-abs 'x 'x)) #f)
-(check-expect (free? 'x (make-app 'x (make-abs 'x 'x))) #t)
-(check-expect (free? 'x (make-abs 'y (make-app 'y 'y))) #f)
+(check-expect (free? 'x '(λ x x)) #f)
+(check-expect (free? 'x '(x (λ x x))) #t)
+(check-expect (free? 'x '(λ y (y y))) #f)
+(check-expect (free? 'x '(λ y (λ x y))) #f)
 (define (free? var expr)
+  (set-member? var (free expr)))
+  ;(cond
+  ;  [(var? expr) (if (eq? var expr) #t #f)]
+  ;  [(app? expr) (or (free? var (rator-of expr))
+  ;                    (free? var (rand-of expr)))]
+  ;  [(abs? expr) (if (eq? (var-of expr) var) #f (free? var (body-of expr)))]))
+
+(define (free expr)
   (cond
-    [(var? expr) (if (eq? var expr) #t #f)]
-    [(app? expr) (or (free? var (rator-of expr))
-                      (free? var (rand-of expr)))]
-    [(abs? expr) (if (eq? (var-of expr) var) #f (free? var (body-of expr)))]))
+    [(var? expr) (add-to-set expr empty)]
+    [(app? expr) (set-union (free (rator-of expr)) (free (rand-of expr)))]
+    [(abs? expr) (remove-from-set (var-of expr) (free (body-of expr)))]))
 
 ;; reducible?: expression -> Boolean
 (check-expect (reducible? 'a) #f)
@@ -161,19 +171,16 @@
                                             (reducible? (rand-of e))))]))
 
 ;; reduce: expression -> expression
-(check-expect (reduce (make-app (make-abs 'x 'x) 'a)) 'a)
-(check-expect (reduce (make-abs 'x (make-app (make-abs 'y 'y) 'z))) (make-abs 'x 'z))
-(check-expect (reduce (make-app 'x (make-app (make-abs 'y 'y) 'z))) (make-app 'x 'z))
-(check-expect (reduce (make-app
-                       (make-app (make-app (make-abs 'x 'x) 'z)(make-app (make-abs 'x 'x) 'z))
-                       (make-app (make-abs 'x 'x) 'z)))
-              (make-app
-                       (make-app 'z (make-app (make-abs 'x 'x) 'z))
-                       (make-app (make-abs 'x 'x) 'z)))
+(check-expect (reduce '((λ x x) a)) 'a)
+(check-expect (reduce '(λ x ((λ y y) z))) '(λ x z))
+(check-expect (reduce '(x ((λ y y) z))) '(x z))
+(check-expect (reduce '((((λ x x) z) ((λ x x) z)) ((λ x x) z)))
+              '((z ((λ x x) z)) ((λ x x) z)))
+(check-expect (reduce '((z ((λ x x) z)) ((λ x x) z)))
+              '((z z) ((λ x x) z)))
 (check-expect (reduce 'x) 'x)
-(check-expect (reduce (make-app (make-abs 'y (make-app (make-abs 'x 'x) 'z)) 'w))
-              (make-app (make-abs 'x 'x) 'z))
-(check-expect (reduce (make-app (make-abs 'x (make-app 'x 'x)) 'y)) (make-app 'y 'y))
+(check-expect (reduce '((λ y ((λ x x) z)) w)) '((λ x x) z))
+(check-expect (reduce '((λ x (x x)) y)) '(y y))
 (define (reduce e)
   (cond
     [(var? e) e]
@@ -186,10 +193,12 @@
     [(abs? e) (make-abs (var-of e) (reduce (body-of e)))]))
 
 ;; normalize: expression -> expression
-;(check-expect (normalize (make-app (make-abs 'x (make-abs 'y (make-abs 'z 'x)))
-;                     (make-abs 'x (make-app 'x (make-app 'y 'z)))))
-;           (make-abs 'x (make-app 'x (make-app 'y 'z))))
+(check-expect (alpha-equiv (normalize '((λ x (λ y (λ z x))) (λ x (x (y z)))))
+                           '(λ g (λ r (λ x (x (y z))))))
+              #t)
 (check-expect (normalize '((λ y ((λ x x) z)) z)) 'z)
+(check-expect (alpha-equiv (normalize '((λ x (λ z (λ y z))) z)) '(λ z (λ y z))) #t)
+;(check-expect (normalize '((λ x (λ y x)) (y w)))
 (check-expect (normalize 'z) 'z)
 (check-expect (normalize '((((λ x (λ y (λ z (x (y z))))) (a (b c))) (d (e f))) (x (y z))))
               '((a (b c)) ((d (e f)) (x (y z)))))                                                                    
