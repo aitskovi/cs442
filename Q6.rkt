@@ -145,11 +145,6 @@
 (check-expect (free? 'x '(λ y (λ x y))) #f)
 (define (free? var expr)
   (set-member? var (free expr)))
-  ;(cond
-  ;  [(var? expr) (if (eq? var expr) #t #f)]
-  ;  [(app? expr) (or (free? var (rator-of expr))
-  ;                    (free? var (rand-of expr)))]
-  ;  [(abs? expr) (if (eq? (var-of expr) var) #f (free? var (body-of expr)))]))
 
 (define (free expr)
   (cond
@@ -198,10 +193,9 @@
               #t)
 (check-expect (normalize '((λ y ((λ x x) z)) z)) 'z)
 (check-expect (alpha-equiv (normalize '((λ x (λ z (λ y z))) z)) '(λ z (λ y z))) #t)
-;(check-expect (normalize '((λ x (λ y x)) (y w)))
 (check-expect (normalize 'z) 'z)
 (check-expect (normalize '((((λ x (λ y (λ z (x (y z))))) (a (b c))) (d (e f))) (x (y z))))
-              '((a (b c)) ((d (e f)) (x (y z)))))                                                                    
+              '((a (b c)) ((d (e f)) (x (y z)))))                                                                  
 (define (normalize e)
   (if (reducible? e) (normalize (reduce e)) e))
 
