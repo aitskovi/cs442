@@ -43,7 +43,6 @@ infix $--;
 fun empty cl = ([], cl)
 fun star p cl = (p --:: star p || empty) cl
 fun plus p = p --:: star p
-(* fun app p cl = (p --## app p || empty) cl *)
 
 (* Takes the next character and runs a test on it *)
 fun tc t [] = raise Fail "undefined: Unexpected End"
@@ -78,10 +77,10 @@ fun parseType cl =
 val true_expr = (st "true") >> (fn _=> Bool(true))
 val false_expr = (st "false")  >> (fn _=> Bool(false))
 val integer = plus digit >> (valOf o Int.fromString o implode)
-val negative_integer = ch #"~" $-- integer >> (fn x=> ~x)
+val negative_integer = ch #"~" $-- ws integer >> (fn x=> ~x)
 val number = integer || negative_integer >> (fn x=> Int(x))
 val var_string = alpha --:: (star (digit || alpha)) >> implode
-val var = var_string >> (fn (x)=> Var(x))
+val var = var_string >> (fn (x)=> if x="then" orelse x="else" then raise Fail "undefined: Invalid Variable" else Var(x))
 
 fun precOf opr =
   case opr of
@@ -112,24 +111,27 @@ fun infixes (pv, pop, precOf, rightAssoc, apply) =
     in level 0
     end
 
-(* fun makeApp x [] = [x]
-  | makeApp x [y] = [App(x,y)] *)
-
-(* fun compress l = foldr (fn ((fst : expr), (rst: expr list)) => makeApp fst
-* rst) empty l *)
-
 fun parseExpr cl =
   let
-    val if_expr = st "if" $-- parseArith --$ ws (st "then") -- parseArith --$ ws (st "else") -- parseArith >> (fn ((x,y),z) => If(x,y,z))
-    val fn_expr = st "fn" $-- ws var_string --$  ws (ch #":") -- parseType --$ ws (st "=>") -- parseArith >> (fn ((x,y),z) => Fun((x,y),z))
-    val iszero_expr = st "iszero" $-- parseArith >> (fn x => UnOp(OpIsZero, x))
-    val non_recur  = iszero_expr || if_expr || fn_expr || number || true_expr || false_expr || var || parens parseArith
+    val if_expr = st "if" $-- parseML --$ ws (st "then") -- parseML --$ ws (st "else") -- parseML >> (fn ((x,y),z) => If(x,y,z))
+    val fn_expr = st "fn" $-- ws var_string --$  ws (ch #":") -- parseType --$ ws (st "=>") -- parseML >> (fn ((x,y),z) => Fun((x,y),z))
+    val iszero_expr = st "iszero" $-- parseML >> (fn (x) => UnOp(OpIsZero, x))
+    val non_recur  = iszero_expr || if_expr || fn_expr || number || true_expr || false_expr || var || parens parseML
   in
     (ws non_recur) cl
   end
 and
     parseArith cl = infixes(parseExpr, pop, precOf, rightAssoc, apply) cl
-
-fun parseML cl = parseArith cl;
+and 
+    parseML cl = 
+    let
+        val (x,cl') = parseArith cl
+    in
+        if cl' = [] then 
+          (x, cl')
+        else
+          (parseML >> (fn (y) => App(x,y))) cl'
+          handle Fail _ => (x, cl')
+    end;
 
 Control.Print.printDepth := 100;
