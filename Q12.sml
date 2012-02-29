@@ -33,6 +33,9 @@ fun resetTVar() = count := 0
 
 (* define the functions below *)
 
+fun check_expect test x y = if x = y then () else print ("Wrong value, test " ^
+  (Int.toString test) ^ "\n")
+
 (* Get the type of a typevar from a type environment *)
 fun typeOf x []  = raise Fail "unbound"
   | typeOf x ((y1,y2)::ys) = if x=y1 then y2 else typeOf x ys
@@ -42,8 +45,8 @@ fun subExp e [] = e
   | subExp T_Int _ = T_Int
   | subExp T_Bool _ = T_Bool
   | subExp (T_Fun(x,y)) ts = T_Fun((subExp x ts), (subExp y ts))
-  | subExp (T_Var(x)) ((t1,t2)::ts) = if x=t1 then t2 else subExp (T_Var(x)) ts
   | subExp (T_List(x)) ts = T_List(subExp x ts)
+  | subExp x ((t1,t2)::ts) = if x=t1 then t2 else subExp x ts
 
 (*Apply a set of substitutions to a type environment *)
 fun subEnv c [] = c
@@ -76,16 +79,16 @@ fun unify T_Int T_Int = []
     in
       s2 o s1
     end
-  | unify (T_Var(x)) (T_Var(y)) = if x=y then [] else [(x, T_Var(y))] 
+  | unify (T_Var(x)) (T_Var(y)) = if x=y then [] else [(T_Var(x), T_Var(y))] 
   | unify (T_Var(x)) y =
     if occurs x y then raise Fail "circularity"
-    else [(x,y)]
+    else [(T_Var(x),y)]
   | unify x (T_Var(y)) =
     if occurs y x then raise Fail "circularity"
-    else [(y,x)]
+    else [(T_Var(y),x)]
   | unify _ (T_Fun(_, _)) = raise Fail "not function"
+  | unify (T_Fun(_, _)) _ = raise Fail "not function"
   | unify _ _ = raise Fail "mismatch"
-
 
 fun w c (Int(_)) = ([], T_Int)
   | w c (Bool(_)) = ([], T_Bool)
@@ -107,16 +110,47 @@ fun w c (Int(_)) = ([], T_Int)
       (s3 o s2 o s1, subExp temp s3)
     end
     
-fun typeExpr e = w [] e
+fun typeExpr e = 
+  let 
+    val (s,t) = w [] e
+  in
+    t
+  end
+
+fun subs (T_Var(x)) (T_Var(y)) = if x=y then [] else [(T_Var(x),T_Var(y))]
+  | subs (T_Fun(a,b)) (T_Fun(c,d)) = (subs a c) @ (subs b d)
+  | subs _ _ = []
 
 fun typeEquiv e1 e2 = 
-  let
-    val s = unify e1 e2
-  in
-    (subExp e1 s) = (subExp e2 s)
-  end
-(* (expect (typeExpr (Int(1))) ([], T_Int)) *)
-(* (expect (typeExpr (Bool(true))) ([], T_Bool)) *)
-(* (expect (typeExpr (Fun("x", Int(1)))) ([], T_Fun(T_Var(1), T_Int)) *)
-(* (expect (typeExpr (Fun("x", Var("x")))) ([], T_Fun(T_Var(1), T_Var(1))) *)
-(* (expect (App((Fun("x", Var("x")))), Int(1))) ([(T_Var(1), T_Int)], T_Fun(T_Int, T_Int))) *)
+    let
+      val s1 = subs e1 e2
+      val s2 = subs e2 e1 
+      val e1' = subExp e1 s1
+      val e2' = subExp e2 s2
+    in
+      e1'=e2 andalso e1=e2'
+    end;
+
+check_expect 1 (typeExpr (Int(1))) T_Int;
+check_expect 2 (typeExpr (Bool(true))) T_Bool;
+check_expect 3 (typeExpr (Fun("x", Int(1)))) (T_Fun(T_Var(1), T_Int));
+resetTVar();
+check_expect 4 (typeExpr (Fun("x", Var("x")))) (T_Fun(T_Var(1), T_Var(1)));
+resetTVar();
+check_expect 5 (typeExpr (App((Fun("x", Var("x"))), Int(1)))) T_Int;
+resetTVar();
+check_expect 6 (typeExpr (App((Fun("x", Var("x"))), Bool(true)))) T_Bool;
+
+check_expect 7 (typeEquiv T_Int T_Bool) false;
+check_expect 8 (typeEquiv T_Int T_Int) true;
+check_expect 9 (typeEquiv (T_Fun(T_Var(1), T_Var(2))) (T_Fun(T_Var(1), T_Var(2)))) true;
+check_expect 10 (typeEquiv (T_Fun(T_Var(1), T_Var(2))) (T_Fun(T_Var(3), T_Var(4)))) true;
+check_expect 11 (typeEquiv (T_Fun(T_Int, T_Var(2))) (T_Fun(T_Bool, T_Var(3)))) false;
+check_expect 12 (typeEquiv (T_Fun(T_Int, T_Var(2))) (T_Fun(T_Int, T_Var(2)))) true;
+check_expect 13 (typeEquiv (T_Fun(T_Int, T_Var(2))) T_Int) false;
+check_expect 14 (typeEquiv (T_Fun(T_Int, T_Int)) (T_Var(1))) false;
+check_expect 15 (typeEquiv (T_Var(1)) (T_Fun(T_Int, T_Int))) false;
+check_expect 16 (typeEquiv (T_Var(1)) T_Int) false;
+check_expect 17 (typeEquiv T_Int (T_Var(1))) false;
+check_expect 18 (typeEquiv (T_Fun(T_Var(1), T_Var(1))) (T_Fun(T_Var(2), T_Var(1)))) false;
+check_expect 19 (typeEquiv (T_Fun(T_Var(1), T_Var(2))) (T_Fun(T_Var(2), T_Var(1)))) true;
