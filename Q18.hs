@@ -5,30 +5,29 @@ data DFA a = DFA [(Int, a, Int)] Int [Int]
             deriving (Show, Eq, Ord)
 
 dfaGen :: (Ord a) => DFA a -> [[a]]
-dfaGen (DFA t s e) = sGen (DFA (sort t) s e) s
+dfaGen (DFA t s e) = sGen (DFA (sort t) s e) [(s, [])]
 
-sGen :: (Ord a) => DFA a -> Int -> [[a]]
-sGen (DFA t s e) state = if end then []:strings else strings 
+sGen :: (Ord a) => DFA a -> [(Int, [a])] -> [[a]]
+sGen _ [] = []
+sGen d as
+    | terminated d as   = (pick d as) ++ sGen d (next d as)
+    | otherwise         = sGen d (next d as)
+
+-- Applies one transition to all the states we currently have
+next :: (Ord a) => DFA a -> [(Int, [a])] -> [(Int, [a])]
+next d [] = []
+next d as = concatMap (\(s, string) -> (map (\(x,y) -> (x, string ++ [y])) (transitions d s))) as
+
+transitions :: (Ord a) => DFA a -> Int -> [(Int, a)]
+transitions (DFA t s e) state = (map (\(_, char, end) -> (end, char)) ts)
     where
-        end = any (== state) e
-        transitions = map (\(_, char, end) -> (map (char:) (sGen (DFA t s e) end))) 
-                            (filter (\(start, _, _) -> state == start) t)
-        strings = merge transitions
+        ts = (filter (\(start, _, _) -> (state == start)) t)
 
-merge :: (Ord a) => [[[a]]] -> [[a]]
-merge [] = []
-merge as = (a:(merge (remove a as)))
-    where a = pick as
+terminated :: (Ord a) => DFA a -> [(Int, [a])] -> Bool
+terminated (DFA t s e) as = any (\(x, _) -> (any (==x) e)) as
 
-pick :: (Ord a) => [[[a]]] -> [a]
-pick [] = []
-pick ([]:[]) = []
-pick (a:[]) = (head a)
-pick (a:as) = 
-    if length b <= 1 then b
-    else if length (head a) <= length b then (head a) else b
+pick :: (Ord a) => DFA a -> [(Int, [a])] -> [[a]]
+pick _ [] = []
+pick (DFA t s e) as = map (\(_, string) -> string) terminated
     where
-        b = pick as
-
-remove :: (Ord a) => [a] -> [[[a]]] -> [[[a]]]
-remove a as = (filter (/= []) (map (filter (/= a)) as))
+        terminated = filter (\(x, _) -> (any (==x) e)) as
